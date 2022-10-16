@@ -1,7 +1,9 @@
 package com.example.intentcamera;
 
+import android.Manifest;
 import android.app.Activity;
 import android.content.Intent;
+import android.content.pm.PackageManager;
 import android.graphics.Bitmap;
 import android.net.Uri;
 import android.os.Bundle;
@@ -31,7 +33,10 @@ import android.view.MenuItem;
 import android.widget.ImageView;
 import android.widget.Toast;
 
+import java.io.ByteArrayOutputStream;
 import java.io.File;
+import java.io.FileOutputStream;
+import java.io.IOException;
 import java.text.DateFormat;
 import java.text.SimpleDateFormat;
 import java.util.Calendar;
@@ -41,6 +46,7 @@ import java.util.Locale;
 public class MainActivity extends AppCompatActivity {
 
     public static final int START_CAMERA = 100;
+    public static final int MY_PERMISSIONS_REQUEST_WRITE = 101;
 
     private ActivityMainBinding binding;
     private ImageView image_view;
@@ -48,6 +54,7 @@ public class MainActivity extends AppCompatActivity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        askWritePermission();
 
         binding = ActivityMainBinding.inflate(getLayoutInflater());
         setContentView(binding.getRoot());
@@ -69,17 +76,57 @@ public class MainActivity extends AppCompatActivity {
         if (resultCode == Activity.RESULT_OK) {
             switch (requestCode) {
                 case START_CAMERA:
-                    prosesCamera(data);
+                    try {
+                        prosesCamera(data);
+                    } catch (IOException e) {
+                        e.printStackTrace();
+                    }
+                    break;
             }
         }
     }
 
-    private void prosesCamera(Intent data) {
+    private void askWritePermission() {
+        if (android.os.Build.VERSION.SDK_INT >= 23) {
+            int readPermission = this.checkSelfPermission(Manifest.permission.READ_EXTERNAL_STORAGE);
+            if (readPermission != PackageManager.PERMISSION_GRANTED) {
+                this.requestPermissions(new String[]{Manifest.permission.READ_EXTERNAL_STORAGE}, MY_PERMISSIONS_REQUEST_WRITE);
+            }
+            int writePermission = this.checkSelfPermission(Manifest.permission.WRITE_EXTERNAL_STORAGE);
+            if (writePermission != PackageManager.PERMISSION_GRANTED) {
+                this.requestPermissions(new String[]{Manifest.permission.WRITE_EXTERNAL_STORAGE}, MY_PERMISSIONS_REQUEST_WRITE);
+            }
+        }
+        if (android.os.Build.VERSION.SDK_INT >= 30) {
+            int managePermission = this.checkSelfPermission(Manifest.permission.MANAGE_EXTERNAL_STORAGE);
+            if (managePermission != PackageManager.PERMISSION_GRANTED) {
+                this.requestPermissions(new String[]{Manifest.permission.MANAGE_EXTERNAL_STORAGE}, MY_PERMISSIONS_REQUEST_WRITE);
+            }
+        }
+    }
+
+
+    private void prosesCamera(Intent data) throws IOException {
         Bitmap bitmap = (Bitmap) data.getExtras().get("data");
         image_view.setImageBitmap(bitmap);
-        Toast.makeText(this, "Gambar berhasil diambil", Toast.LENGTH_LONG).show();
+        ByteArrayOutputStream output_stream = new ByteArrayOutputStream();
 
+        bitmap.compress(Bitmap.CompressFormat.JPEG, 100, output_stream);
+        byte[] bytes = output_stream.toByteArray();
 
+        File folder = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DCIM);
+
+        Date date = Calendar.getInstance().getTime();
+        DateFormat date_format = new SimpleDateFormat("yyyyMMdd hhmmss");
+        String str_date = date_format.format(date);
+        File output = new File(folder, str_date + ".jpg");
+        output.createNewFile();
+        FileOutputStream file_output_stream = new FileOutputStream(output);
+        file_output_stream.write(bytes);
+        file_output_stream.flush();
+        file_output_stream.close();
+
+        Toast.makeText(this, "Gambar berhasil disimpan", Toast.LENGTH_LONG).show();
     }
 
     @Override
