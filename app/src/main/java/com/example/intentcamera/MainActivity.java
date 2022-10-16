@@ -2,29 +2,23 @@ package com.example.intentcamera;
 
 import android.Manifest;
 import android.app.Activity;
+import android.content.ContentResolver;
+import android.content.ContentValues;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.graphics.Bitmap;
 import android.net.Uri;
+import android.os.Build;
 import android.os.Bundle;
-
-import com.google.android.material.snackbar.Snackbar;
 
 import androidx.activity.result.ActivityResult;
 import androidx.activity.result.ActivityResultCallback;
 import androidx.activity.result.ActivityResultLauncher;
 import androidx.activity.result.contract.ActivityResultContracts;
-import androidx.annotation.Nullable;
 import androidx.appcompat.app.AppCompatActivity;
 
-import android.os.Environment;
 import android.provider.MediaStore;
 import android.view.View;
-
-import androidx.navigation.NavController;
-import androidx.navigation.Navigation;
-import androidx.navigation.ui.AppBarConfiguration;
-import androidx.navigation.ui.NavigationUI;
 
 import com.example.intentcamera.databinding.ActivityMainBinding;
 
@@ -33,23 +27,19 @@ import android.view.MenuItem;
 import android.widget.ImageView;
 import android.widget.Toast;
 
-import java.io.ByteArrayOutputStream;
-import java.io.File;
-import java.io.FileOutputStream;
-import java.io.IOException;
-import java.text.DateFormat;
-import java.text.SimpleDateFormat;
-import java.util.Calendar;
-import java.util.Date;
-import java.util.Locale;
+import java.io.OutputStream;
+import java.util.Map;
+import java.util.Objects;
+import java.util.UUID;
 
 public class MainActivity extends AppCompatActivity {
 
-    public static final int START_CAMERA = 100;
-    public static final int MY_PERMISSIONS_REQUEST_WRITE = 101;
+    public static final int PERMISSION_WRITE = 100;
 
     private ActivityMainBinding binding;
     private ImageView image_view;
+    private boolean isWritePermissionGranted = false;
+    ActivityResultLauncher<Intent> getImage;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -59,74 +49,74 @@ public class MainActivity extends AppCompatActivity {
         binding = ActivityMainBinding.inflate(getLayoutInflater());
         setContentView(binding.getRoot());
 
+        getImage = registerForActivityResult(new ActivityResultContracts.StartActivityForResult(), new ActivityResultCallback<ActivityResult>() {
+            @Override
+            public void onActivityResult(ActivityResult result) {
+                if (result.getResultCode() == Activity.RESULT_OK && result.getData() != null) {
+                    Bundle bundle = result.getData().getExtras();
+                    Bitmap bitmap = (Bitmap) bundle.get("data");
+                    image_view.setImageBitmap(bitmap);
+
+                    if (isWritePermissionGranted) {
+                        if (saveImageToExternalStorage(UUID.randomUUID().toString(), bitmap)) {
+                            Toast.makeText(MainActivity.this, "saved Image Successfully", Toast.LENGTH_SHORT).show();
+                        }
+                    } else {
+                        Toast.makeText(MainActivity.this, "Permission not granted", Toast.LENGTH_SHORT).show();
+                    }
+                }
+            }
+        });
         image_view = binding.imageView;
 
         binding.btnAmbilFoto.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View view) {
-                Intent it = new Intent(MediaStore.ACTION_IMAGE_CAPTURE);
-                startActivityForResult(it, START_CAMERA);
+                getImage.launch(new Intent(MediaStore.ACTION_IMAGE_CAPTURE));
             }
         });
     }
 
-    @Override
-    protected void onActivityResult(int requestCode, int resultCode, @Nullable Intent data) {
-        super.onActivityResult(requestCode, resultCode, data);
-        if (resultCode == Activity.RESULT_OK) {
-            switch (requestCode) {
-                case START_CAMERA:
-                    try {
-                        prosesCamera(data);
-                    } catch (IOException e) {
-                        e.printStackTrace();
-                    }
-                    break;
-            }
-        }
-    }
-
     private void askWritePermission() {
         if (android.os.Build.VERSION.SDK_INT >= 23) {
-            int readPermission = this.checkSelfPermission(Manifest.permission.READ_EXTERNAL_STORAGE);
-            if (readPermission != PackageManager.PERMISSION_GRANTED) {
-                this.requestPermissions(new String[]{Manifest.permission.READ_EXTERNAL_STORAGE}, MY_PERMISSIONS_REQUEST_WRITE);
+            int cameraPermission = this.checkSelfPermission(Manifest.permission.WRITE_EXTERNAL_STORAGE);
+            if (cameraPermission != PackageManager.PERMISSION_GRANTED) {
+                this.requestPermissions(new String[]{Manifest.permission.WRITE_EXTERNAL_STORAGE}, PERMISSION_WRITE);
             }
-            int writePermission = this.checkSelfPermission(Manifest.permission.WRITE_EXTERNAL_STORAGE);
-            if (writePermission != PackageManager.PERMISSION_GRANTED) {
-                this.requestPermissions(new String[]{Manifest.permission.WRITE_EXTERNAL_STORAGE}, MY_PERMISSIONS_REQUEST_WRITE);
-            }
-        }
-        if (android.os.Build.VERSION.SDK_INT >= 30) {
-            int managePermission = this.checkSelfPermission(Manifest.permission.MANAGE_EXTERNAL_STORAGE);
-            if (managePermission != PackageManager.PERMISSION_GRANTED) {
-                this.requestPermissions(new String[]{Manifest.permission.MANAGE_EXTERNAL_STORAGE}, MY_PERMISSIONS_REQUEST_WRITE);
-            }
+            isWritePermissionGranted = true;
         }
     }
 
 
-    private void prosesCamera(Intent data) throws IOException {
-        Bitmap bitmap = (Bitmap) data.getExtras().get("data");
-        image_view.setImageBitmap(bitmap);
-        ByteArrayOutputStream output_stream = new ByteArrayOutputStream();
+    private boolean saveImageToExternalStorage(String imgName, Bitmap bmp) {
+        Uri ImageCollection = null;
+        ContentResolver resolver = getContentResolver();
 
-        bitmap.compress(Bitmap.CompressFormat.JPEG, 100, output_stream);
-        byte[] bytes = output_stream.toByteArray();
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            ImageCollection = MediaStore.Images.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY);
+        } else {
+            ImageCollection = MediaStore.Images.Media.EXTERNAL_CONTENT_URI;
+        }
 
-        File folder = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DCIM);
+        ContentValues contentValues = new ContentValues();
+        contentValues.put(MediaStore.Images.Media.DISPLAY_NAME, imgName + ".jpg");
+        contentValues.put(MediaStore.Images.Media.MIME_TYPE, "image/jpeg");
+        Uri imageUri = resolver.insert(ImageCollection, contentValues);
 
-        Date date = Calendar.getInstance().getTime();
-        DateFormat date_format = new SimpleDateFormat("yyyyMMdd hhmmss");
-        String str_date = date_format.format(date);
-        File output = new File(folder, str_date + ".jpg");
-        output.createNewFile();
-        FileOutputStream file_output_stream = new FileOutputStream(output);
-        file_output_stream.write(bytes);
-        file_output_stream.flush();
-        file_output_stream.close();
+        try {
+            OutputStream outputStream = resolver.openOutputStream(Objects.requireNonNull(imageUri));
+            bmp.compress(Bitmap.CompressFormat.JPEG, 100, outputStream);
+            Objects.requireNonNull(outputStream);
+            outputStream.flush();
+            outputStream.close();
+            return true;
 
-        Toast.makeText(this, "Gambar berhasil disimpan", Toast.LENGTH_LONG).show();
+        } catch (Exception e) {
+            Toast.makeText(this, "Image not saved: \n" + e, Toast.LENGTH_SHORT).show();
+            e.printStackTrace();
+        }
+
+        return false;
     }
 
     @Override
